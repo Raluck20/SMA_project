@@ -19,12 +19,11 @@ logging.basicConfig(
 async def display_loop(env: Environment):
     while env.running:
         await asyncio.sleep(DISPLAY_INTERVAL_MS / 1000)
-
-        # Afișează log-ul de operații + mesaje acumulat înainte de grid
+        if not env.running:
+            break
         if env.operation_log:
             print("\n".join(env.operation_log))
             env.operation_log.clear()
-
         print("=" * 51)
         print(render_grid(env.world, env.elapsed_ms()))
         print("=" * 51)

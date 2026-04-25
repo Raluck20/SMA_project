@@ -1,16 +1,13 @@
 from world_state import WorldState
 from models import Position
 
-
 # Constanta ușor de schimbat din cod sursă, cum cere enunțul
 DISPLAY_INTERVAL_MS = 2000
 CELL_WIDTH = 4   # lățimea fiecărei celule în caractere
 
-
 def _color_abbrev(color: str, length: int = 3) -> str:
     """Prescurtează culoarea la `length` caractere, cu majusculă."""
     return color[:length].capitalize()
-
 
 def render_grid(world: WorldState, elapsed_ms: float) -> str:
     """
@@ -26,29 +23,30 @@ def render_grid(world: WorldState, elapsed_ms: float) -> str:
     H = world.height
 
     # Header coloane
-    header = "     "
+    header = "    "
     for x in range(W):
         header += f"{x:<{CELL_WIDTH}} "
-    lines.append(header)
+    lines.append(header.rstrip())
 
-    # Separator orizontal
+    # Separator minimalist (afișează doar '+'-urile la colțuri)
     def h_sep():
-        return "   +" + (("-" * CELL_WIDTH + "+") * W)
+        return "  +" + (" " * CELL_WIDTH + "+") * W
 
-    for y in range(H - 1, -1, -1):   # y de sus în jos (H-1 = sus, 0 = jos)
+    # Parcurgerea gridului
+    for y in range(H):
         lines.append(h_sep())
 
-        row1 = f"{y:<3}|"   # prima linie a celulei (conținut principal)
-        row2 = "   |"       # a doua linie a celulei (info secundară)
+        row1 = f"{y:<2} "   # prima linie a celulei (conținut principal)
+        row2 = "   "        # a doua linie a celulei (info secundară)
 
         for x in range(W):
             pos = Position(x, y)
             cell1, cell2 = _render_cell(world, pos)
-            row1 += f"{cell1:<{CELL_WIDTH}}|"
-            row2 += f"{cell2:<{CELL_WIDTH}}|"
+            row1 += f"{cell1:<{CELL_WIDTH}} "
+            row2 += f"{cell2:<{CELL_WIDTH}} "
 
-        lines.append(row1)
-        lines.append(row2)
+        lines.append(row1.rstrip())
+        lines.append(row2.rstrip())
 
     lines.append(h_sep())
     lines.append("")
@@ -60,28 +58,20 @@ def render_grid(world: WorldState, elapsed_ms: float) -> str:
 
     return "\n".join(lines)
 
-
 def _render_cell(world: WorldState, pos: Position) -> tuple[str, str]:
     """
-    Returnează (linia1, linia2) pentru o celulă.
-
-    Priorități de afișare:
-    1. Obstacol → #
-    2. Groapă neacoperită → ////
-    3. Agent → @Abc (culoare prescurtată)
-    4. Dale → $NCol (număr + culoare)
-    5. Celulă goală → spații
+    Returnează (linia1, linia2) pentru o celulă conform exemplului din proiect.
     """
-    # 1. Obstacol
+    # 1. Obstacol (în exemplu sunt liniuțe înclinate pe ambele rânduri)
     if pos in world.obstacles:
-        return "#   ", "    "
+        return "////", "////"
 
-    # 2. Groapă neacoperită
+    # 2. Groapă neacoperită (în exemplu e '#' + adâncimea, și culoarea sub)
     active_holes = [h for h in world.holes if h.position == pos and not h.is_filled]
     if active_holes:
         hole = active_holes[0]
-        abbrev = _color_abbrev(hole.color, 3)
-        return "////", f"{abbrev} "
+        abbrev = _color_abbrev(hole.color, 4) # Ex: "Gree", "Blue"
+        return f"#{hole.depth}", abbrev
 
     # 3. Agenți la această poziție
     agents_here = [a for a in world.agents if a.position == pos]
@@ -108,7 +98,6 @@ def _render_cell(world: WorldState, pos: Position) -> tuple[str, str]:
     line2 = " ".join(line2_parts) if line2_parts else ""
 
     return line1[:CELL_WIDTH], line2[:CELL_WIDTH]
-
 
 def render_status_line(world: WorldState, elapsed_ms: float) -> str:
     """Linie scurtă de status pentru logging continuu."""
