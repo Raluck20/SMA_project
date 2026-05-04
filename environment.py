@@ -29,15 +29,15 @@ DIRECTION_DELTA = {
 class Operation:
     agent_id: int
     op_type: OpType
-    args: dict           # parametri specifici operației
-    reply_queue: asyncio.Queue   # mediul pune răspunsul aici
+    args: dict
+    reply_queue: asyncio.Queue
 
 
 @dataclass
 class OpResult:
     success: bool
     message: str
-    data: Any = None    # folosit pentru REQUEST_STATE
+    data: Any = None
 
 
 class Environment:
@@ -48,10 +48,8 @@ class Environment:
         self.start_time: Optional[float] = None
         self.running = False
 
-        # Jurnal de operații pentru afișare
         self.operation_log: list = []
 
-        # Limita: un agent nu poate cere Request_state de două ori la rând
         self._last_op_was_request: dict[int, bool] = {
             a.agent_id: False for a in config.agents
         }
@@ -87,10 +85,20 @@ class Environment:
             result = self._validate_and_execute(op)
 
             if result.success and op.op_type != OpType.REQUEST_STATE:
-                # Delay t ms pentru operații reale
                 await asyncio.sleep(self.config.operation_delay_ms / 1000)
 
             await op.reply_queue.put(result)
+
+        await self._drain_queue()
+
+    async def _drain_queue(self):
+        await asyncio.sleep(0.1)
+        while True:
+            try:
+                op: Operation = self.op_queue.get_nowait()
+                await op.reply_queue.put(OpResult(False, "Simulation stopped"))
+            except asyncio.QueueEmpty:
+                break
 
     def _validate_and_execute(self, op: Operation) -> OpResult:
         agent = self.world.get_agent(op.agent_id)
@@ -103,7 +111,6 @@ class Environment:
             self._last_op_was_request[op.agent_id] = True
             return OpResult(True, "State returned", data=self.world.snapshot())
 
-        # Orice altă operație resetează flag-ul Request_state
         self._last_op_was_request[op.agent_id] = False
 
         if op.op_type == OpType.MOVE:
@@ -181,14 +188,12 @@ class Environment:
         agent.carried_tile = None
         hole.depth -= 1
 
-        # Puncte: doar dacă culoarea dalei == culoarea gropii
         points_earned = 0
         if tile_color == hole.color:
             points_earned = 10
             if hole.is_filled:
-                points_earned += 40   # bonus finalizare completă
+                points_earned += 40
 
-        # Punctele merg la agentul de culoarea gropii
         for a in self.world.agents:
             if a.color == hole.color:
                 a.points += points_earned

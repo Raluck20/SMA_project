@@ -1,0 +1,37 @@
+4 300 5000 10 10
+
+blue green red yellow
+3 0 0 3 4 4 7 7
+
+OBSTACLES
+1 0 6 3 2 2 4 7 0 5 8 0
+
+TILES
+1 blue 2 3
+1 blue 8 8
+1 blue 5 2
+1 green 2 0
+1 green 5 2
+1 green 8 8
+1 yellow 5 2
+1 yellow 2 3
+1 yellow 8 8
+1 yellow 9 6
+1 yellow 5 2
+1 yellow 2 6
+1 red 0 8
+1 red 2 3
+1 red 6 1
+1 red 5 2
+1 red 9 6
+
+HOLES
+3 green 0 0
+1 blue 3 1
+2 blue 5 4
+3 blue 1 2
+3 red 9 9
+5 red 6 4
+2 yellow 0 9
+4 yellow 0 6
+6 yellow 3 5

@@ -1,0 +1,15 @@
+3 1 1000 9 10
+Red Green Blue
+0 0 3 5 8 7
+OBSTACLES 0 1 2 5 6 6 3 1
+TILES
+2 Red 1 1
+1 Red 3 3
+2 Green 4 4
+1 Green 5 5
+1 Blue 1 7
+2 Blue 3 7
+HOLES
+1 Red 2 2
+1 Green 5 5
+1 Blue 4 7

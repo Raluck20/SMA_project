@@ -5,7 +5,6 @@ from models import Position, SimulationConfig
 
 @dataclass
 class TileStack:
-    """Dale de aceeași culoare într-o celulă."""
     color: str
     count: int
 
@@ -13,7 +12,7 @@ class TileStack:
 @dataclass
 class HoleState:
     color: str
-    depth: int       # scade cu 1 la fiecare dală plasată
+    depth: int
     position: Position
 
     @property
@@ -27,17 +26,15 @@ class AgentState:
     color: str
     position: Position
     points: int = 0
-    carried_tile: Optional[str] = None   # culoarea dalei transportate, sau None
+    carried_tile: Optional[str] = None
 
 
 @dataclass
 class WorldState:
-    """Starea completă a simulării la un moment dat."""
     width: int
     height: int
     obstacles: Set[Position]
 
-    # Fiecare celulă poate avea mai multe stive de dale (una per culoare)
     tiles: Dict[Position, List[TileStack]] = field(default_factory=dict)
 
     holes: List[HoleState] = field(default_factory=list)
@@ -65,7 +62,6 @@ class WorldState:
         return [h for h in self.holes if not h.is_filled]
 
     def is_passable(self, pos: Position) -> bool:
-        """O celulă e traversabilă dacă nu e obstacol și nu e groapă neacoperită."""
         if pos in self.obstacles:
             return False
         if not (0 <= pos.x < self.width and 0 <= pos.y < self.height):
@@ -88,7 +84,6 @@ class WorldState:
         self.tiles[pos].append(TileStack(color=color, count=count))
 
     def remove_tile(self, pos: Position, color: str) -> bool:
-        """Elimină o dală de culoarea specificată. Returnează True dacă a reușit."""
         for stack in self.get_tiles_at(pos):
             if stack.color == color and stack.count > 0:
                 stack.count -= 1
@@ -100,7 +95,6 @@ class WorldState:
         return False
 
     def snapshot(self) -> dict:
-        """Returnează un snapshot al stării pentru Request_state() al agenților."""
         return {
             "obstacles": list(self.obstacles),
             "tiles": {

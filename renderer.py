@@ -1,19 +1,14 @@
 from world_state import WorldState
 from models import Position
 
-# Constanta ușor de schimbat din cod sursă, cum cere enunțul
-DISPLAY_INTERVAL_MS = 2000
-CELL_WIDTH = 4   # lățimea fiecărei celule în caractere
+DISPLAY_INTERVAL_MS = 250
+CELL_WIDTH = 4
 
 def _color_abbrev(color: str, length: int = 3) -> str:
-    """Prescurtează culoarea la `length` caractere, cu majusculă."""
     return color[:length].capitalize()
 
 def render_grid(world: WorldState, elapsed_ms: float) -> str:
-    """
-    Construiește reprezentarea textuală a gridului.
-    Returnează un string complet gata de printat.
-    """
+
     lines = []
     elapsed_s = round(elapsed_ms / 1000)
     lines.append(f"Time: {elapsed_s}s")
@@ -22,22 +17,19 @@ def render_grid(world: WorldState, elapsed_ms: float) -> str:
     W = world.width
     H = world.height
 
-    # Header coloane
     header = "    "
     for x in range(W):
         header += f"{x:<{CELL_WIDTH}} "
     lines.append(header.rstrip())
 
-    # Separator minimalist (afișează doar '+'-urile la colțuri)
     def h_sep():
         return "  +" + (" " * CELL_WIDTH + "+") * W
 
-    # Parcurgerea gridului
     for y in range(H):
         lines.append(h_sep())
 
-        row1 = f"{y:<2} "   # prima linie a celulei (conținut principal)
-        row2 = "   "        # a doua linie a celulei (info secundară)
+        row1 = f"{y:<2} "
+        row2 = "   "
 
         for x in range(W):
             pos = Position(x, y)
@@ -51,7 +43,6 @@ def render_grid(world: WorldState, elapsed_ms: float) -> str:
     lines.append(h_sep())
     lines.append("")
 
-    # Status agenți
     for agent in world.agents:
         carries = f"carries {agent.carried_tile}" if agent.carried_tile else "carries nothing"
         lines.append(f"{agent.color.capitalize()} agent: {agent.points} points; {carries}")
@@ -59,24 +50,18 @@ def render_grid(world: WorldState, elapsed_ms: float) -> str:
     return "\n".join(lines)
 
 def _render_cell(world: WorldState, pos: Position) -> tuple[str, str]:
-    """
-    Returnează (linia1, linia2) pentru o celulă conform exemplului din proiect.
-    """
-    # 1. Obstacol (în exemplu sunt liniuțe înclinate pe ambele rânduri)
+
     if pos in world.obstacles:
         return "////", "////"
 
-    # 2. Groapă neacoperită (în exemplu e '#' + adâncimea, și culoarea sub)
     active_holes = [h for h in world.holes if h.position == pos and not h.is_filled]
     if active_holes:
         hole = active_holes[0]
-        abbrev = _color_abbrev(hole.color, 4) # Ex: "Gree", "Blue"
+        abbrev = _color_abbrev(hole.color, 4)
         return f"#{hole.depth}", abbrev
 
-    # 3. Agenți la această poziție
     agents_here = [a for a in world.agents if a.position == pos]
 
-    # 4. Dale la această poziție
     tile_stacks = world.get_tiles_at(pos)
 
     line1_parts = []
@@ -85,7 +70,6 @@ def _render_cell(world: WorldState, pos: Position) -> tuple[str, str]:
     for agent in agents_here:
         abbrev = _color_abbrev(agent.color, 3)
         line1_parts.append(f"@{abbrev}")
-        # Dacă agentul transportă o dală, afișăm culoarea dalei pe linia 2
         if agent.carried_tile:
             line2_parts.append(_color_abbrev(agent.carried_tile, 3))
 
@@ -100,7 +84,6 @@ def _render_cell(world: WorldState, pos: Position) -> tuple[str, str]:
     return line1[:CELL_WIDTH], line2[:CELL_WIDTH]
 
 def render_status_line(world: WorldState, elapsed_ms: float) -> str:
-    """Linie scurtă de status pentru logging continuu."""
     elapsed_s = elapsed_ms / 1000
     active_holes = len(world.get_active_holes())
     total_pts = sum(a.points for a in world.agents)

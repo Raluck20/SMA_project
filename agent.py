@@ -14,7 +14,6 @@ from pathfinder import (
 
 
 class MessageBus:
-    """Canal simplu de mesaje între agenți (fără negociere)."""
 
     def __init__(self, n_agents: int):
         self.inboxes: dict[int, asyncio.Queue] = {
@@ -42,11 +41,6 @@ class MessageBus:
 
 
 class TileWorldAgent:
-    """
-    Agent cognitiv cu planificare bazată pe utilitate și mesaje simple între agenți.
-    Etapa 1: infrastructură + mesaje simple de anunț.
-    Etapa 2: planificare cu scor utility = reward_estimat - cost_pași.
-    """
 
     def __init__(
         self,
@@ -63,10 +57,6 @@ class TileWorldAgent:
         self.all_agent_ids = all_agent_ids
         self.reply_queue: asyncio.Queue = asyncio.Queue()
 
-    # ------------------------------------------------------------------
-    # Interfață cu mediul
-    # ------------------------------------------------------------------
-
     async def _send_op(self, op_type: OpType, args: dict = None) -> OpResult:
         op = Operation(
             agent_id=self.agent_id,
@@ -75,7 +65,10 @@ class TileWorldAgent:
             reply_queue=self.reply_queue,
         )
         await self.env.op_queue.put(op)
-        return await self.reply_queue.get()
+        try:
+            return await asyncio.wait_for(self.reply_queue.get(), timeout=3.0)
+        except asyncio.TimeoutError:
+            return OpResult(False, "Simulation stopped")
 
     async def move(self, direction: str) -> OpResult:
         return await self._send_op(OpType.MOVE, {"direction": direction})
@@ -98,15 +91,8 @@ class TileWorldAgent:
         result = await self._send_op(OpType.REQUEST_STATE)
         return result.data if result.success else None
 
-    # ------------------------------------------------------------------
-    # Mesaje simple între agenți (Etapa 1)
-    # ------------------------------------------------------------------
-
     async def _announce(self, action: str, details: str = ""):
-        """
-        Anunță toți ceilalți agenți acțiunea planificată.
-        Cerință etapa 1: mesaje simple între agenți.
-        """
+
         ts = self.env.elapsed_ms() / 1000
         content = {
             "action": action,
@@ -126,16 +112,11 @@ class TileWorldAgent:
             sender_color = msg["content"].get("agent_color", f"Agent{msg['from']}")
             action = msg["content"].get("action", "?")
             details = msg["content"].get("details", "")
-            # Folosim timestamp curent la primire, nu cel din mesaj
             ts = self.env.elapsed_ms() / 1000
             logging.info(
                 f"[{ts:.3f}][MSG][{self.color.upper()} received from {sender_color.upper()}] "
                 f"{action}: {details}"
             )
-
-    # ------------------------------------------------------------------
-    # Planificare cu utilitate (Etapa 2)
-    # ------------------------------------------------------------------
 
     def _score_task(
         self,
@@ -143,13 +124,7 @@ class TileWorldAgent:
         hole_pos: Position,
         world: WorldState,
     ) -> float:
-        """
-        Calculează utilitatea unui task:
-          utility = reward_estimat - cost_pași * penalizare_per_pas
 
-        reward = 10 pts pentru dală de aceeași culoare cu groapa
-                + 40 pts bonus dacă e ultima dală (depth == 1)
-        """
         blocked = self._other_agent_positions()
         my_pos = self._my_state().position
 
@@ -178,10 +153,6 @@ class TileWorldAgent:
         self,
         world: WorldState,
     ) -> Optional[Tuple[Position, Position, float]]:
-        """
-        Dintre toate perechile (dală_proprie, groapă_proprie) accesibile,
-        returnează (tile_pos, hole_pos, score) cu utilitatea maximă.
-        """
         own_tiles = [
             tp for tp, stacks in world.tiles.items()
             for s in stacks if s.color == self.color and s.count > 0
@@ -207,10 +178,6 @@ class TileWorldAgent:
             return None
         return (best_tile, best_hole, best_score)
 
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
-
     def _my_state(self):
         return self.env.world.get_agent(self.agent_id)
 
@@ -222,8 +189,12 @@ class TileWorldAgent:
 
     async def _follow_path(self, path: list[str]) -> bool:
         for direction in path:
+            if not self.env.running:
+                return False
             result = await self.move(direction)
             if not result.success:
+                if not self.env.running:
+                    return False
                 logging.warning(
                     f"Agent {self.agent_id} ({self.color}): "
                     f"move {direction} failed: {result.message}"
@@ -231,9 +202,6 @@ class TileWorldAgent:
                 return False
         return True
 
-    # ------------------------------------------------------------------
-    # Bucla principală
-    # ------------------------------------------------------------------
 
     async def run(self):
         logging.info(f"Agent {self.agent_id} ({self.color}): started")
@@ -243,7 +211,6 @@ class TileWorldAgent:
             if agent_state is None:
                 break
 
-            # Procesează mesaje primite
             await self._listen_messages()
 
             world = self.env.world
@@ -261,12 +228,8 @@ class TileWorldAgent:
             f"Final points: {final_pts}"
         )
 
-    # ------------------------------------------------------------------
-    # Faza 1: colectare dală cu planificare bazată pe utilitate
-    # ------------------------------------------------------------------
 
     async def _phase_collect_tile(self, world: WorldState, agent_state):
-        # Evaluează toate task-urile posibile și alege cel mai bun
         best = self._best_task(world)
 
         if best is not None:
@@ -277,7 +240,6 @@ class TileWorldAgent:
                 f"[SOLO] tile ({tile_pos.x},{tile_pos.y}) -> "
                 f"hole ({hole_pos.x},{hole_pos.y}), score={score:.1f}"
             )
-            # Anunță ceilalți agenți acțiunea planificată
             await self._announce(
                 "PICK",
                 f"{self.color} tile at ({tile_pos.x},{tile_pos.y}) "
@@ -286,7 +248,6 @@ class TileWorldAgent:
             await self._go_pick_tile(world, agent_state, tile_pos, self.color)
             return
 
-        # Nu există task propriu accesibil — încearcă orice dală pentru deblocare
         blocked = self._other_agent_positions()
         any_tile = self._nearest_any_tile(world, agent_state.position, blocked)
         if any_tile:
@@ -355,16 +316,11 @@ class TileWorldAgent:
                     f"Agent {self.agent_id}: tile gone at {tile_pos}, retrying"
                 )
 
-    # ------------------------------------------------------------------
-    # Faza 2: livrare dală la groapă
-    # ------------------------------------------------------------------
-
     async def _phase_deliver_tile(self, world: WorldState, agent_state):
         tile_color = agent_state.carried_tile
         hole_pos = best_hole_for_color(tile_color, world)
 
         if hole_pos is None:
-            # Nicio groapă de aceeași culoare — încearcă orice groapă activă
             active = world.get_active_holes()
             if active:
                 hole_pos = active[0].position
@@ -382,7 +338,6 @@ class TileWorldAgent:
         nav = find_path_adjacent_to(agent_state.position, hole_pos, world, blocked)
 
         if nav is None:
-            # Încearcă altă groapă
             for hole in world.get_active_holes():
                 if hole.position == hole_pos:
                     continue

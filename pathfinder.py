@@ -24,11 +24,7 @@ def find_path(
     world: WorldState,
     extra_blocked: Optional[Set[Position]] = None,
 ) -> Optional[List[str]]:
-    """
-    BFS de la start la goal.
-    Returnează lista de direcții sau None dacă nu există cale.
-    goal poate fi impassable (ex: groapă) — BFS se oprește la el oricum.
-    """
+
     if start == goal:
         return []
 
@@ -68,25 +64,15 @@ def find_path_adjacent_to(
     world: WorldState,
     extra_blocked: Optional[Set[Position]] = None,
 ) -> Optional[Tuple[List[str], str]]:
-    """
-    Găsește cel mai scurt drum până la o celulă adiacentă lui target,
-    împreună cu direcția din acea celulă spre target (pentru Use_tile).
 
-    Dacă start e deja adiacent lui target, returnează ([], direction) direct.
-    Returnează None dacă nicio celulă adiacentă nu e accesibilă.
-    """
     best = None
 
     for direction, (dx, dy) in DIRECTIONS.items():
-        # Celula adiacentă lui target în direcția opusă
-        # (dacă direcția e "north", celula e la sudul lui target)
         adjacent = Position(target.x - dx, target.y - dy)
 
-        # Dacă suntem deja în acea celulă adiacentă
         if adjacent == start:
             return ([], direction)
 
-        # Celula adiacentă trebuie să fie traversabilă (nu obstacol, nu groapă)
         if not world.is_passable(adjacent):
             continue
 
@@ -106,11 +92,7 @@ def find_path_adjacent_to_any(
     world: WorldState,
     extra_blocked: Optional[Set[Position]] = None,
 ) -> Optional[Tuple[List[str], str, Position]]:
-    """
-    Dintre mai multe ținte, găsește cea mai apropiată și returnează
-    (path, use_direction, target_pos).
-    Util când există mai multe gropi de aceeași culoare.
-    """
+
     best = None
 
     for target in targets:
@@ -123,7 +105,6 @@ def find_path_adjacent_to_any(
 
     return best
 
-
 def manhattan(a: Position, b: Position) -> int:
     return abs(a.x - b.x) + abs(a.y - b.y)
 
@@ -134,11 +115,7 @@ def nearest_tile_of_color(
     world: WorldState,
     extra_blocked: Optional[Set[Position]] = None,
 ) -> Optional[Position]:
-    """
-    Returnează poziția celulei cu dală de culoarea dată,
-    cea mai apropiată ca distanță Manhattan.
-    Ignoră celulele blocate de alți agenți dacă extra_blocked e dat.
-    """
+
     blocked = extra_blocked or set()
     best_pos = None
     best_dist = float("inf")
@@ -155,16 +132,12 @@ def nearest_tile_of_color(
 
     return best_pos
 
-
 def best_hole_for_color(
     color: str,
     world: WorldState,
     prefer_depth_one: bool = True,
 ) -> Optional[Position]:
-    """
-    Returnează poziția celei mai bune gropi active pentru culoarea dată.
-    Prioritizează depth=1 pentru bonusul de 40 puncte.
-    """
+
     holes = [h for h in world.holes if h.color == color and not h.is_filled]
     if not holes:
         return None
@@ -181,7 +154,6 @@ def all_holes_for_color(
     color: str,
     world: WorldState,
 ) -> List[Position]:
-    """Returnează toate gropile active pentru culoarea dată."""
     return [h.position for h in world.holes if h.color == color and not h.is_filled]
 
 
@@ -191,11 +163,7 @@ def reachable_tiles_of_color(
     world: WorldState,
     extra_blocked: Optional[Set[Position]] = None,
 ) -> List[Tuple[Position, int]]:
-    """
-    Returnează toate dalele de culoarea dată accesibile din pos,
-    sortate după lungimea reală a căii BFS (nu Manhattan).
-    Returnează lista de (tile_pos, path_length).
-    """
+
     blocked = extra_blocked or set()
     results = []
 

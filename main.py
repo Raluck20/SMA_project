@@ -48,7 +48,6 @@ async def run_simulation(config):
         for a in config.agents
     ]
 
-    # Afișare inițială
     print("=" * 51)
     print(render_grid(world, 0))
     print("=" * 51)
@@ -62,7 +61,6 @@ async def run_simulation(config):
 
     await asyncio.gather(*tasks, return_exceptions=True)
 
-    # Afișare finală
     if env.operation_log:
         print("\n".join(env.operation_log))
         env.operation_log.clear()
