@@ -43,7 +43,6 @@ def find_path(
             if neighbor in blocked:
                 continue
 
-            # Permitem goal chiar dacă e impassable (groapă, obstacol adiacent)
             if neighbor != goal and not world.is_passable(neighbor):
                 continue
 

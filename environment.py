@@ -50,6 +50,7 @@ class Environment:
 
         self.operation_log: list = []
 
+        # tin minte daca ultima op a unui agent a fost req state pt ca nu pot face 2 la rand
         self._last_op_was_request: dict[int, bool] = {
             a.agent_id: False for a in config.agents
         }
@@ -69,12 +70,18 @@ class Environment:
         self.running = True
         total_ms = self.config.total_time_ms
 
+        # ruleaza pana la expirarea timpului
         while self.running:
             elapsed = self.elapsed_ms()
             if elapsed >= total_ms:
                 self.running = False
                 break
 
+            if not self.world.get_active_holes():
+                self.running = False
+                break
+
+            # astept max 50 ms o operatie din coada
             try:
                 op: Operation = await asyncio.wait_for(
                     self.op_queue.get(), timeout=0.05
@@ -82,15 +89,19 @@ class Environment:
             except asyncio.TimeoutError:
                 continue
 
+            # execut operatia
             result = self._validate_and_execute(op)
 
+            # daca op a reusit si nu cere starea lumii astept t ms
             if result.success and op.op_type != OpType.REQUEST_STATE:
                 await asyncio.sleep(self.config.operation_delay_ms / 1000)
 
+            # trimit raspunsul inapoi agentului
             await op.reply_queue.put(result)
 
         await self._drain_queue()
 
+    # golesc coada de operatii la terminarea simularii ca sa nu se blocheze codul
     async def _drain_queue(self):
         await asyncio.sleep(0.1)
         while True:
@@ -105,6 +116,7 @@ class Environment:
         if agent is None:
             return OpResult(False, f"Agent {op.agent_id} not found")
 
+        # nu se poate cere starea de doua ori la rand
         if op.op_type == OpType.REQUEST_STATE:
             if self._last_op_was_request.get(op.agent_id, False):
                 return OpResult(False, "Cannot call Request_state twice in a row")
@@ -132,12 +144,15 @@ class Environment:
         if delta is None:
             return OpResult(False, f"Invalid direction '{direction}'")
 
+        # calc noua pozitie
         new_pos = Position(agent.position.x + delta[0], agent.position.y + delta[1])
 
+        # verific daca celula e blocata sau inafara gridului
         if not self.world.is_passable(new_pos):
             self.log(f"[{agent.color.upper()}] Move {direction} FAILED (blocked)")
             return OpResult(False, f"Cannot move to {new_pos}: blocked or out of bounds")
 
+        # actualizez pozitia
         agent.position = new_pos
         self.log(f"[{agent.color.upper()}] Move {direction.capitalize()}")
         return OpResult(True, "Moved")
@@ -173,7 +188,10 @@ class Environment:
         if agent.carried_tile is None:
             return OpResult(False, "Not carrying a tile")
 
+        # calc directia gropii
         hole_pos = Position(agent.position.x + delta[0], agent.position.y + delta[1])
+
+        # verific ca groapa e neacoperita complet
         adjacent_holes = [
             h for h in self.world.holes
             if h.position == hole_pos and not h.is_filled
@@ -183,17 +201,20 @@ class Environment:
             self.log(f"[{agent.color.upper()}] Use tile {direction} FAILED (no hole there)")
             return OpResult(False, f"No active hole adjacent in direction '{direction}'")
 
+        # acopar groapa
         hole = adjacent_holes[0]
         tile_color = agent.carried_tile
         agent.carried_tile = None
         hole.depth -= 1
 
+        # punctaj
         points_earned = 0
         if tile_color == hole.color:
             points_earned = 10
             if hole.is_filled:
                 points_earned += 40
 
+        # punctajul merge la agentul de aceasi culoare cu groapa
         for a in self.world.agents:
             if a.color == hole.color:
                 a.points += points_earned
@@ -205,6 +226,8 @@ class Environment:
         )
         return OpResult(True, f"Used tile, hole depth now {hole.depth}", data=points_earned)
 
+    # transfer puncte de la un agent la altul
+    # folosit in negociere — un agent da puncte unui alt agent pentru a indeplini o sarcina in locul sau
     def _exec_transfer_points(self, agent, args) -> OpResult:
         target_id = args.get("target_id")
         points = args.get("points", 0)
