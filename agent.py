@@ -151,6 +151,8 @@ class TileWorldAgent:
             elif action in ("USE_TILE", "DROP"):
                 self.reserved_tiles.clear()
 
+    # Calculează un scor pentru perechea (dală, groapă) pe baza distanței totale
+    # și a recompensei obținute; returnează -inf dacă traseul nu există sau groapa e plină.
     def _score_task(
         self,
         tile_pos: Position,
@@ -184,7 +186,8 @@ class TileWorldAgent:
         step_penalty = 0.5
         return reward - total_steps * step_penalty
 
-    # itereaza toate combinatiile posibile si le scoreaza
+    # Găsește cea mai bună pereche (dală proprie, groapă proprie) prin scorarea tuturor
+    # combinațiilor posibile; sare peste dalele mai apropiate de un alt agent liber.
     def _best_task(
             self,
             world: WorldState,
@@ -249,7 +252,8 @@ class TileWorldAgent:
             if a.agent_id != self.agent_id
         }
 
-    # executa lista de miscari si daca esueaza returneaza false pentru replanificare
+    # executa lista de miscari si daca esueaza returneaza false pentru
+    # replanificare pentru a semnala necesitatea replanificării
     async def _follow_path(self, path: list[str]) -> bool:
         ts = self.env.elapsed_ms() / 1000
         logging.info(
@@ -289,6 +293,7 @@ class TileWorldAgent:
             if agent_state is None:
                 break
 
+            # Procesează toate mesajele acumulate în inbox înainte de a lua o decizie
             await self._drain_messages()
 
             ts = self.env.elapsed_ms() / 1000
@@ -300,6 +305,7 @@ class TileWorldAgent:
                 f"puncte={agent_state.points}"
             )
 
+            # Obține referința la starea lumii
             world = self.env.world
 
             if agent_state.carried_tile is None:
@@ -317,17 +323,19 @@ class TileWorldAgent:
             f"puncte finale: {final_pts}\n"
             f"{'=' * 55}"
         )
-
+    # Faza de colectare: caută cel mai bun task cu dale proprii; dacă nu există,
+    # încearcă să ridice orice dală disponibilă pentru a debloca situația.
     async def _phase_collect_tile(self, world: WorldState, agent_state):
+        # Procesează toate mesajele acumulate în inbox înainte de a planifica
         await self._drain_messages()
         ts = self.env.elapsed_ms() / 1000
         logging.info(
             f"[{ts:.3f}s][PLAN][{self.color.upper()}] "
             f"caut cel mai bun task (nu transport nimic)..."
         )
-
+        # Caută cel mai bun task disponibil: perechea (dală proprie, groapă proprie) cu scorul maxim
         best = self._best_task(world)
-
+        # Dacă există un task valid cu dale și gropi de culoarea agentului
         if best is not None:
             tile_pos, hole_pos, score = best
             ts = self.env.elapsed_ms() / 1000
@@ -336,20 +344,23 @@ class TileWorldAgent:
                 f"task ales: dala {self.color} la ({tile_pos.x},{tile_pos.y}) "
                 f"-> groapa la ({hole_pos.x},{hole_pos.y}) | scor={score:.1f}"
             )
+            # Anunță toți ceilalți agenți că intenționează să ridice această dală
             await self._announce(
                 "PICK",
                 f"{self.color} tile at ({tile_pos.x},{tile_pos.y}) "
                 f"for hole ({hole_pos.x},{hole_pos.y}) [score={score:.1f}]"
             )
+            # Navighează la dală și o ridică
             await self._go_pick_tile(world, agent_state, tile_pos, self.color)
             return
 
+        # FALLBACK: nu există dale proprii disponibile
         ts = self.env.elapsed_ms() / 1000
         logging.info(
             f"[{ts:.3f}s][FALLBACK][{self.color.upper()}] "
             f"nu am task valid cu dale proprii — caut orice dala apropiata"
         )
-
+        # Caută cea mai apropiată dală de orice culoare accesibilă de la poziția curentă
         blocked = self._other_agent_positions()
         any_tile = self._nearest_any_tile(world, agent_state.position, blocked)
         if any_tile:
@@ -359,10 +370,13 @@ class TileWorldAgent:
                 f"[{ts:.3f}s][FALLBACK][{self.color.upper()}] "
                 f"ridic dala {tile_color} la ({tile_pos.x},{tile_pos.y}) pentru deblocare"
             )
+            # Anunță ceilalți agenți că ridică această dală
+            # (tip diferit față de PICK normal, pentru a fi diferențiat în rezervări)
             await self._announce(
                 "UNBLOCK_PICK",
                 f"{tile_color} tile at ({tile_pos.x},{tile_pos.y})"
             )
+            # Navighează la dală și o ridică
             await self._go_pick_tile(world, agent_state, tile_pos, tile_color)
         else:
             ts = self.env.elapsed_ms() / 1000
@@ -373,6 +387,7 @@ class TileWorldAgent:
             await asyncio.sleep(0.1)
 
     # cauta cea mai apropiata dala de orice cul accesibila de la poz actuala
+    # ignoră dalele rezervate de alți agenți sau mai apropiate de un alt agent liber
     def _nearest_any_tile(
             self,
             world: WorldState,
@@ -385,7 +400,7 @@ class TileWorldAgent:
             f"caut orice dala accesibila de la ({pos.x},{pos.y})..."
         )
 
-        # Agenți liberi (nu transportă nimic), alții decât mine
+        # Caută toți agenții liberi
         other_free_agents = [
             a for a in world.agents
             if a.agent_id != self.agent_id and a.carried_tile is None
@@ -393,14 +408,15 @@ class TileWorldAgent:
 
         best = None
         best_len = float("inf")
-
+        # Parcurge toate celulele în care există dale
         for tile_pos, stacks in world.tiles.items():
             if tile_pos in blocked:
                 continue
-
+            # În aceeași celulă pot exista mai multe stive de dale
             for stack in stacks:
                 if stack.count <= 0:
                     continue
+                # Dacă dala e deja rezervată de alt agent, nu o mai considerăm
                 if self.reserved_tiles[tile_pos] >= stack.count:
                     ts2 = self.env.elapsed_ms() / 1000
                     logging.info(
@@ -409,7 +425,7 @@ class TileWorldAgent:
                         f"SARIT (rezervata de alt agent)"
                     )
                     continue
-
+                # Calculează drumul de la poziția curentă la dală
                 path = find_path(pos, tile_pos, world, set())
                 ts2 = self.env.elapsed_ms() / 1000
                 if path is None:
@@ -422,7 +438,7 @@ class TileWorldAgent:
 
                 my_dist = len(path)
 
-                # *** FIX: skip dacă un alt agent liber e mai aproape ***
+                # Dacă alt agent liber e mai aproape de această dală, o lăsăm lui
                 skip = False
                 for other in other_free_agents:
                     their_path = find_path(other.position, tile_pos, world, set())
@@ -438,11 +454,11 @@ class TileWorldAgent:
                         f"SARIT (alt agent mai aproape)"
                     )
                     continue
-
+                # Dacă a trecut toate verificările, dala e accesibilă
                 logging.info(
                     f"[{ts2:.3f}s][SEARCH][{self.color.upper()}] "
                     f"  dala {stack.color} la ({tile_pos.x},{tile_pos.y}): "
-                    f"accesibila în {my_dist} pași"
+                    f"accesibila în {my_dist} pasi"
                 )
                 if my_dist < best_len:
                     best_len = my_dist
@@ -464,6 +480,8 @@ class TileWorldAgent:
 
         return best
 
+    # Navighează agentul până la dală, o ridică și anunță ceilalți agenți;
+    # dacă dala nu mai e disponibilă la sosire, decrementează rezervarea și replanifică.
     async def _go_pick_tile(
             self,
             world: WorldState,
@@ -497,6 +515,7 @@ class TileWorldAgent:
             return
 
         # blocked = self._other_agent_positions()
+        # Dacă agentul nu este deja pe poziția dalei, calculează un drum până acolo
         path = find_path(agent_state.position, tile_pos, world, set())
         if path is None:
             ts = self.env.elapsed_ms() / 1000
@@ -506,9 +525,10 @@ class TileWorldAgent:
             )
             await asyncio.sleep(0.1)
             return
-
+        # Urmează drumul calculat pas cu pas
         success = await self._follow_path(path)
         if success:
+            # ridica dala
             result = await self.pick(color)
             ts = self.env.elapsed_ms() / 1000
             if result.success:
@@ -517,6 +537,7 @@ class TileWorldAgent:
                     f"am ridicat dala {color} de la ({tile_pos.x},{tile_pos.y})"
                 )
                 self.reserved_tiles[tile_pos] = max(0, self.reserved_tiles[tile_pos] - 1)
+                # Anunță ceilalți agenți că dala a fost ridicată
                 await self._announce("PICK_DONE", f"{color} tile at ({tile_pos.x},{tile_pos.y})")
             else:
                 logging.info(
@@ -525,6 +546,8 @@ class TileWorldAgent:
                 )
                 self.reserved_tiles[tile_pos] = max(0, self.reserved_tiles[tile_pos] - 1)
 
+    # Faza de livrare: caută cea mai bună groapă pentru dala transportată, navighează
+    # până în celula adiacentă și folosește dala; dacă groapa e inaccesibilă, caută alternativă.
     async def _phase_deliver_tile(self, world: WorldState, agent_state):
         tile_color = agent_state.carried_tile
         ts = self.env.elapsed_ms() / 1000
@@ -532,42 +555,34 @@ class TileWorldAgent:
             f"[{ts:.3f}s][DELIVER][{self.color.upper()}] "
             f"transport dala {tile_color} — caut cea mai buna groapa"
         )
-
+        # Caută cea mai bună groapă pentru culoarea dalei transportate
         hole_pos = best_hole_for_color(tile_color, world)
 
         if hole_pos is None:
-            active = world.get_active_holes()
-            if active:
-                hole_pos = active[0].position
-                ts = self.env.elapsed_ms() / 1000
-                logging.info(
-                    f"[{ts:.3f}s][FALLBACK][{self.color.upper()}] "
-                    f"nu am groapa de culoarea {tile_color} — merg la prima groapa activa ({hole_pos.x},{hole_pos.y})"
-                )
-            else:
-                ts = self.env.elapsed_ms() / 1000
-                logging.info(
-                    f"[{ts:.3f}s][DROP][{self.color.upper()}] "
-                    f"nu mai exista gropi active — las dala {tile_color} jos"
-                )
-                await self._announce("DROP", f"{tile_color} tile (no holes left)")
-                await self.drop_tile()
-                return
-        else:
             ts = self.env.elapsed_ms() / 1000
             logging.info(
-                f"[{ts:.3f}s][TARGET][{self.color.upper()}] "
-                f"groapa tinta gasita la ({hole_pos.x},{hole_pos.y}) pentru dala {tile_color}"
+                f"[{ts:.3f}s][DROP][{self.color.upper()}] "
+                f"nu exista groapa de culoarea {tile_color} — las dala jos"
             )
+            await self._announce("DROP", f"{tile_color} tile (no matching hole)")
+            await self.drop_tile()
+            return
 
+        ts = self.env.elapsed_ms() / 1000
+        logging.info(
+            f"[{ts:.3f}s][TARGET][{self.color.upper()}] "
+            f"groapa tinta gasita la ({hole_pos.x},{hole_pos.y}) pentru dala {tile_color}"
+        )
+        # Anunță ceilalți agenți
         await self._announce(
             "USE_TILE",
             f"{tile_color} tile -> hole at ({hole_pos.x},{hole_pos.y})"
         )
 
         # blocked = self._other_agent_positions()
+        # Caută un drum până într-o celulă vecină gropii
         nav = find_path_adjacent_to(agent_state.position, hole_pos, world, set())
-
+        # Dacă groapa aleasă nu este accesibilă, încearcă altă groapă de aceeași culoare
         if nav is None:
             ts = self.env.elapsed_ms() / 1000
             logging.info(
@@ -575,7 +590,7 @@ class TileWorldAgent:
                 f"groapa ({hole_pos.x},{hole_pos.y}) inaccesibila — caut alternativa"
             )
             for hole in world.get_active_holes():
-                if hole.position == hole_pos:
+                if hole.position == hole_pos or hole.color != tile_color:
                     continue
                 nav = find_path_adjacent_to(
                     agent_state.position, hole.position, world, set()
@@ -588,7 +603,7 @@ class TileWorldAgent:
                         f"am găsit alternativa: groapa la ({hole_pos.x},{hole_pos.y})"
                     )
                     break
-
+        # Dacă nici după rerutare nu există o groapă accesibilă, lasă dala jos
         if nav is None:
             ts = self.env.elapsed_ms() / 1000
             logging.info(
@@ -599,6 +614,7 @@ class TileWorldAgent:
             return
 
         move_path, use_direction = nav
+        # Urmează drumul spre groapă
         success = await self._follow_path(move_path)
         if not success:
             return
@@ -618,8 +634,10 @@ class TileWorldAgent:
             )
             await self.drop_tile()
 
+    # Golește complet inbox-ul, procesând toate mesajele acumulate; actualizează
+    # contorul de rezervări pentru PICK/UNBLOCK_PICK și îl decrementează la PICK_DONE.
     async def _drain_messages(self):
-        """Procesează toate mesajele din inbox, nu doar unul."""
+        # Procesează toate mesajele din inbox, nu doar unul.
         while True:
             msg = await self.bus.receive(self.agent_id, timeout=0.0)
             if msg is None:
@@ -632,6 +650,8 @@ class TileWorldAgent:
                 f"[{ts:.3f}s][INBOX][{self.color.upper()} ← {sender_color.upper()}] "
                 f"{action}: {details}"
             )
+            # Dacă alt agent a anunțat că vrea să ridice o dală,
+            # atunci această dală este marcată ca rezervată
             if action in ("PICK", "UNBLOCK_PICK"):
                 match = re.search(r'\((\d+),(\d+)\)', details)
                 if match:
@@ -641,7 +661,8 @@ class TileWorldAgent:
                         f"[{ts:.3f}s][RESERVE][{self.color.upper()}] "
                         f"dala la ({x},{y}) rezervata de {sender_color.upper()}"
                     )
-            # Cu:
+            # Dacă alt agent anunță că a ridicat deja dala,
+            # eliberăm rezervarea de pe acea poziție
             elif action == "PICK_DONE":
                 match = re.search(r'\((\d+),(\d+)\)', details)
                 if match:
