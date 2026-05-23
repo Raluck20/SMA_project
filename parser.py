@@ -134,8 +134,6 @@ def _validate_config(config: SimulationConfig) -> None:
     for agent in config.agents:
         if not inside(agent.position):
             raise ParseError(f"Agent {agent.agent_id} out of bounds at {agent.position}")
-        if agent.position in seen_agent_positions:
-            raise ParseError(f"Two agents share the same initial position {agent.position}")
         seen_agent_positions.add(agent.position)
 
     for obstacle in config.obstacles:
